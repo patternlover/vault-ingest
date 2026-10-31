@@ -42,8 +42,12 @@ Two files, in this order:
    log_lang = "English"
    ```
 
-Read it through the helper instead of parsing it by hand — it applies the defaults and tells
-you when something is missing:
+Never put the machine file inside the vault, and never commit it: it is the one file that
+identifies the machine. `<vault>/.ingest.md` is different — it describes the vault, it holds no
+secret, and having it in the vault means it travels with the notes to your other machine.
+
+Read the config through the helper instead of parsing it by hand — it applies the defaults and
+tells you when something is missing:
 
 ```bash
 bash '<skill-dir>/scripts/ingest-config'            # all resolved KEY=value lines
@@ -60,7 +64,6 @@ bash '<skill-dir>/scripts/ingest-config' --check    # is the vault there and rea
 | `validator` | `none` | command that must exit 0 before the commit |
 | `commit_prefix` | `[pi]` | leading token that marks agent commits |
 | `log_lang` | — | language of the log line (empty = the vault's own language) |
-| `notes_dirs` | — | the buckets your steps refer to |
 
 Why a config file and not a rewrite: the skill ships as one file per user, but paths differ
 per user. Keeping them outside the repo means updates are a pull with no local diff to carry.
@@ -81,7 +84,10 @@ per user. Keeping them outside the repo means updates are a pull with no local d
    then look for the note that should already hold this fact by name, aliases, tags and
    text. If it exists, update it. Never create a second note for the same fact.
 4. **Decide what to keep** using the table below. Only facts verified during this session:
-   no "probably", and nothing another system already owns.
+   no "probably", and nothing another system already owns. The table names buckets that a
+   mature vault has; if this vault has none of them, put the fact in the closest note that
+   already exists and say which one in the report. Creating a bucket folder is a decision
+   about someone's vault, not something to do silently on the first ingest.
 5. **Write** following the vault protocol: complete frontmatter, one fact per line, the
    modified date set to today, `reviewed: false`, and wikilinks to people, organizations
    and projects.
@@ -91,9 +97,13 @@ per user. Keeping them outside the repo means updates are a pull with no local d
    project note. This is the one thing a fresh session cannot infer; without it the work
    looks finished.
 7. **Log line** in `<log_dir>/<log_file>`, one line per action, in `<log_lang>`, with
-   wikilinks: `- 18:40 — updated [[Checkout tracking]] with the GA4 checkout events`. If
-   `log_file` is empty, append to the day's log that already exists rather than opening a
-   second one: the log is read by day, not by machine.
+   wikilinks: `- 18:40 — updated [[Checkout tracking]] with the GA4 checkout events`.
+   Before writing, open the most recent file in `<log_dir>` and copy its shape exactly —
+   including frontmatter if it has any, because your validator probably walks that folder
+   too, and a log file without the required frontmatter turns step 8 red for a reason that
+   has nothing to do with the work. If `<log_dir>` does not exist, create it. If `<log_file>`
+   is empty and today has no log yet, reuse the naming of the most recent one with today's
+   date instead of inventing a second scheme: the log is read by day, not by machine.
 8. **Validator.** Run `<validator>`; with `none`, skip the step and say so in the report.
    Exit 0 is mandatory. On a non-zero exit: one attempt to
    fix, then stop, report what is red, and **do not schedule the pane close** — a vault that
@@ -101,8 +111,10 @@ per user. Keeping them outside the repo means updates are a pull with no local d
 9. **One commit.** Explicit paths, never `git add -A`: another session may be working in the
    same directory, and `-A` would swallow its half-finished files. Message
    `<commit_prefix> <action>: <description>`, where `<action>` is
-   `create | update | move | delete | log`. If `git status` shows nothing of yours, commit
-   nothing: an empty commit is noise.
+   `create | update | move | delete | log` — the dominant one when a session both adds a file
+   and edits another. "Yours" means the paths you touched in this session: if those are the
+   only thing `git status` lists, commit; if it lists nothing you touched, commit nothing,
+   because an empty commit is noise and a commit of someone else's half-work is a conflict.
 10. **Push.** `git -c rebase.autoStash=true pull --rebase` then `git push`. Two machines stay
     in sync only this way. If the push fails, say so and do not schedule the pane close.
 11. **Visible title.** `bash '<skill-dir>/scripts/ensure-pane-title'`. It resolves the herdr
@@ -116,7 +128,10 @@ per user. Keeping them outside the repo means updates are a pull with no local d
     missing, red reload), report it and carry on: you lose the countdown, not the session.
 12. **Schedule the close** with `bash '<skill-dir>/scripts/ingest-close'`. It closes this
     pane after 30 seconds of quiet and the countdown runs in the title. Do not retype the
-    countdown in the report.
+    countdown in the report. To see what it would do without closing anything, use
+    `bash '<skill-dir>/scripts/pane-close-later' <idle> --pane <id> --dry-run`: it prints
+    nothing on the terminal, everything goes to its log under `TMPDIR`
+    (`pane-close-later-<pane>.log`), which is also where a real run leaves its trail.
 13. **Report**, at most 8 lines: files touched · what you did not save and why · open thread
     · when the pane closes.
 
@@ -191,7 +206,8 @@ when the pane has no manual name. Before writing, the script leaves a
   stuck on the pane.
 - Do not use `herdr pane close` by hand: the guard lives in the script.
 - If the script or `herdr` is missing, say so and close nothing: better a leftover pane than
-  a half-closed session.
+  a half-closed session. Every run leaves its trail in `TMPDIR/pane-close-later-<pane>.log`:
+  read that, not the pane, when you need to know what happened.
 - The countdown never appears in the chat transcript: it is a title, not agent output, and it
   disappears with the pane.
 - A second `ingest-close` on the same pane does nothing: the lock in `TMPDIR` stops it.

@@ -1,31 +1,32 @@
 #!/usr/bin/env bash
-# ingest-config — risolve la configurazione della skill senza cablarla in SKILL.md.
+# ingest-config — resolve this skill's configuration without hardcoding it in SKILL.md.
 #
-# La logica (un commit, path espliciti, validatore, riga di log) vale per qualunque vault;
-# i nomi no. Stanno fuori dal repo, in due posti, e questa e' l'unica cosa che li legge:
+# The protocol (one commit, explicit paths, validator, log line) fits any vault; the names
+# do not. They live outside this repository, in two places, and this is the only thing that
+# reads them:
 #
-#   1. il file macchina, per trovare il vault:
+#   1. the machine file, which locates the vault:
 #        $INGEST_CONFIG
 #        $XDG_CONFIG_HOME/vault-ingest/config.toml
 #        ~/.config/vault-ingest/config.toml      (macOS, Linux)
 #        %APPDATA%\vault-ingest\config.toml      (Windows)
-#   2. il file del vault, `<vault_root>/.ingest.md`, che sovrascrive tutto il resto.
-#      Sta nel vault perche' e' privato: non finisce mai nel repo pubblico.
+#   2. the vault file, `<vault_root>/.ingest.md`, which overrides everything else.
+#      It lives in the vault because it describes that vault, so it stays private.
 #
-# Uso:
-#   ingest-config              stampa tutte le chiavi risolte come KEY=valore
-#   ingest-config <key>        stampa solo il valore (exit 1 se vuoto)
-#   ingest-config --file       stampa i file di config letti
-#   ingest-config --check      verifica che vault_root esista e che il file vault si legga
+# Usage:
+#   ingest-config              print every resolved key as KEY=value
+#   ingest-config <key>        print one value (exit 1 when empty)
+#   ingest-config --file       print the config files that were read
+#   ingest-config --check      verify vault_root exists (warns if log_dir does not)
 #
-# Chiavi: vault_root vault_marker log_dir log_file validator commit_prefix log_lang notes_dirs
-# Formato accettato, per riga: `chiave = "valore"`, `chiave = valore`, `chiave: valore`.
-# Commenti con #. Sezioni [ingest] ignorate (le chiavi valgono comunque).
+# Keys: vault_root vault_marker log_dir log_file validator commit_prefix log_lang
+# Accepted per line: `key = "value"`, `key = value`, `key: value`. # starts a comment.
+# [section] headers are ignored: the keys count anyway.
 #
-# Env: INGEST_CONFIG — path del file macchina (usato anche dai test).
+# Env: INGEST_CONFIG — machine file path (used by the tests too).
 set -uo pipefail
 
-KEYS="vault_root vault_marker log_dir log_file validator commit_prefix log_lang notes_dirs"
+KEYS="vault_root vault_marker log_dir log_file validator commit_prefix log_lang"
 
 defaults() {
   case "$1" in
@@ -35,7 +36,6 @@ defaults() {
     validator) printf 'none' ;;
     commit_prefix) printf '[pi]' ;;
     log_lang) printf '' ;;
-    notes_dirs) printf '' ;;
     *) printf '' ;;
   esac
 }
@@ -88,7 +88,7 @@ value_of() {
 
 case "${1:-}" in
   --file)
-    printf '%s\n' "${machine_file:-nessun file macchina}"
+    printf '%s\n' "${machine_file:-no machine file}"
     vault="$(value_of vault_root)"
     [ -n "$vault" ] && printf '%s\n' "$vault/.ingest.md"
     exit 0
@@ -97,14 +97,18 @@ case "${1:-}" in
     vault="$(value_of vault_root)"
     marker="$(value_of vault_marker)"
     if [ -z "$vault" ]; then
-      printf 'vault_root non configurato: scrivi %s\n' "${machine_file:-~/.config/vault-ingest/config.toml}" >&2
+      printf 'vault_root is not configured: write %s\n' "${machine_file:-~/.config/vault-ingest/config.toml}" >&2
       exit 1
     fi
-    [ -d "$vault" ] || { printf 'vault_root non esiste: %s\n' "$vault" >&2; exit 1; }
+    [ -d "$vault" ] || { printf 'vault_root does not exist: %s\n' "$vault" >&2; exit 1; }
     if [ "$marker" = "AGENTS.md" ] && [ ! -f "$vault/$marker" ]; then
-      printf 'attenzione: %s non ha %s (marker di default)\n' "$vault" "$marker" >&2
+      printf 'warning: %s has no %s (default marker)\n' "$vault" "$marker" >&2
     fi
-    printf 'config ok: vault=%s log=%s validatore=%s\n' "$vault" "$(value_of log_dir)" "$(value_of validator)"
+    logd="$(value_of log_dir)"
+    if [ -n "$logd" ] && [ ! -d "$vault/$logd" ]; then
+      printf 'warning: log_dir does not exist yet: %s/%s (the ingest creates it)\n' "$vault" "$logd" >&2
+    fi
+    printf 'config ok: vault=%s log=%s validator=%s\n' "$vault" "$logd" "$(value_of validator)"
     exit 0
     ;;
   '' )
@@ -116,7 +120,7 @@ case "${1:-}" in
     ;;
   *)
     out="$(value_of "$1")"
-    [ -n "$out" ] || { printf 'chiave vuota o sconosciuta: %s\n' "$1" >&2; exit 1; }
+    [ -n "$out" ] || { printf 'empty or unknown key: %s\n' "$1" >&2; exit 1; }
     printf '%s\n' "$out"
     ;;
 esac

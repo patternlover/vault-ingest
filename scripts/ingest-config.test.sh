@@ -23,9 +23,9 @@ printf '# vault\n' > "$VAULT/AGENTS.md"
 # 1. nessun file: vault_root vuoto, e la chiave singola esce 1
 CFG="$TMPROOT/none.toml"
 run vault_root >/dev/null 2>&1
-[ $? -eq 1 ] && ok "senza config: vault_root esce 1" || ko "senza config: vault_root esce 1"
+[ $? -eq 1 ] && ok "no config: vault_root exits 1" || ko "no config: vault_root exits 1"
 run --check >/dev/null 2>&1
-[ $? -eq 1 ] && ok "senza config: --check esce 1" || ko "senza config: --check esce 1"
+[ $? -eq 1 ] && ok "no config: --check exits 1" || ko "no config: --check exits 1"
 
 # 2. defaults quando il file c'e' ma la chiave no
 CFG="$TMPROOT/empty.toml"
@@ -44,9 +44,9 @@ validator = "node scripts/validate.mjs"   # commento in linea
 
 commit_prefix = "[pi-home]"
 EOF
-[ "$(run vault_root)" = "$VAULT" ] && ok "macchina: legge vault_root" || { ko "macchina: legge vault_root"; run vault_root; }
-[ "$(run validator)" = "node scripts/validate.mjs" ] && ok "macchina: toglie virgolette e commento" || { ko "macchina: toglie virgolette e commento"; run validator; }
-[ "$(run commit_prefix)" = "[pi-home]" ] && ok "macchina: legge commit_prefix" || ko "macchina: legge commit_prefix"
+[ "$(run vault_root)" = "$VAULT" ] && ok "machine file: reads vault_root" || { ko "machine file: reads vault_root"; run vault_root; }
+[ "$(run validator)" = "node scripts/validate.mjs" ] && ok "machine file: strips quotes and trailing comment" || { ko "machine file: strips quotes and trailing comment"; run validator; }
+[ "$(run commit_prefix)" = "[pi-home]" ] && ok "machine file: reads commit_prefix" || ko "machine file: reads commit_prefix"
 
 # 4. file del vault: vince sul file macchina, e accetta anche `chiave: valore`
 cat > "$VAULT/.ingest.md" <<'EOF'
@@ -55,35 +55,35 @@ log_dir: 90 System/Log
 log_lang: italiano
 validator: none
 EOF
-[ "$(run log_dir)" = "90 System/Log" ] && ok "vault: vince su macchina" || { ko "vault: vince su macchina"; run log_dir; }
-[ "$(run log_lang)" = "italiano" ] && ok "vault: sintassi con i due punti" || ko "vault: sintassi con i due punti"
-[ "$(run validator)" = "none" ] && ok "vault: sovrascrive anche il default" || ko "vault: sovrascrive anche il default"
+[ "$(run log_dir)" = "90 System/Log" ] && ok "vault file: wins over the machine file" || { ko "vault file: wins over the machine file"; run log_dir; }
+[ "$(run log_lang)" = "italiano" ] && ok "vault file: colon syntax" || ko "vault file: colon syntax"
+[ "$(run validator)" = "none" ] && ok "vault file: overrides a default" || ko "vault file: overrides a default"
 
 # 5. --file elenca macchina e vault; --check passa
-run --file | grep -x "$CFG" >/dev/null && ok "--file: file macchina" || ko "--file: file macchina"
-run --file | grep -x "$VAULT/.ingest.md" >/dev/null && ok "--file: file vault" || ko "--file: file vault"
-run --check >/dev/null 2>&1 && ok "--check: verde" || ko "--check: verde"
+run --file | grep -x "$CFG" >/dev/null && ok "--file: machine file" || ko "--file: machine file"
+run --file | grep -x "$VAULT/.ingest.md" >/dev/null && ok "--file: vault file" || ko "--file: vault file"
+run --check >/dev/null 2>&1 && ok "--check: green" || ko "--check: green"
 
 # 6. tutte le chiavi in un colpo, senza valori vuoti
 all="$(run)"
 for k in vault_root vault_marker log_dir validator commit_prefix log_lang; do
-  printf '%s\n' "$all" | grep "^$k=" >/dev/null || { ko "tutte le chiavi: $k"; all=""; }
+  printf '%s\n' "$all" | grep "^$k=" >/dev/null || { ko "all keys: $k"; all=""; }
 done
-[ -n "$all" ] && ok "tutte le chiavi: presenti" || ko "tutte le chiavi: presenti"
-printf '%s\n' "$all" | grep '^log_file=$' >/dev/null && ok "chiave senza default: vuota, non assente" || ko "chiave senza default: vuota, non assente"
+[ -n "$all" ] && ok "all keys: present" || ko "all keys: present"
+printf '%s\n' "$all" | grep '^log_file=$' >/dev/null && ok "key without default: empty, not missing" || ko "key without default: empty, not missing"
 
 # 7. vault inesistente: --check esce 1
 CFG="$TMPROOT/broken.toml"
 printf 'vault_root = "%s/non-esiste"\n' "$TMPROOT" > "$CFG"
 run --check >/dev/null 2>&1
-[ $? -eq 1 ] && ok "--check: vault mancante esce 1" || ko "--check: vault mancante esce 1"
+[ $? -eq 1 ] && ok "--check: missing vault exits 1" || ko "--check: missing vault exits 1"
 
 # 8. chiave sconosciuta: exit 1, e opzione sconosciuta: exit 2
 CFG="$TMPROOT/machine.toml"
 run boh >/dev/null 2>&1
-[ $? -eq 1 ] && ok "chiave sconosciuta: exit 1" || ko "chiave sconosciuta: exit 1"
+[ $? -eq 1 ] && ok "unknown key: exit 1" || ko "unknown key: exit 1"
 run --boh >/dev/null 2>&1
-[ $? -eq 2 ] && ok "opzione sconosciuta: exit 2" || ko "opzione sconosciuta: exit 2"
+[ $? -eq 2 ] && ok "unknown option: exit 2" || ko "unknown option: exit 2"
 
 echo ""
 printf '%d ok, %d fail\n' "$pass" "$fail"
