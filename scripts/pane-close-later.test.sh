@@ -275,23 +275,24 @@ fi
 # 19. lock with a live but foreign pid: it must not block the close
 case_new stalelock
 printf 'idle\nidle\nidle\n' > "$FAKE/status"
-sleep 60 &
+sleep 60 2>/dev/null &
 foreign=$!
 printf '%s\n' "$foreign" > "${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$PANE" | tr -c 'A-Za-z0-9._-' '_').pid"
 PANE_CLOSE_HERDR="$FAKE/herdr" "$TARGET" 2 --poll 1 --pane "$PANE" >/dev/null 2>&1
 [ "$(cat "$FAKE/closed")" = "$PANE" ] && ok "stale lock: carries on and closes" || ko "stale lock: carries on and closes"
-kill "$foreign" 2>/dev/null
+kill "$foreign" 2>/dev/null; wait "$foreign" 2>/dev/null
 
 # 19b. lock with a live pid that IS running this script: the close must wait, not start over.
 #      (Without this, case 19 above would pass even if the script read a different lock path.)
 case_new reallock
 printf 'idle\nidle\nidle\n' > "$FAKE/status"
-bash -c 'exec -a pane-close-later sleep 30' &
+bash -c 'exec -a pane-close-later sleep 30' 2>/dev/null &
 holder=$!
 printf '%s\n' "$holder" > "${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$PANE" | tr -c 'A-Za-z0-9._-' '_').pid"
 PANE_CLOSE_HERDR="$FAKE/herdr" "$TARGET" 2 --poll 1 --pane "$PANE" >/dev/null 2>&1
 [ -s "$FAKE/closed" ] && ko "live lock: a second countdown does not start" || ok "live lock: a second countdown does not start"
 kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
 rm -f "${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$PANE" | tr -c 'A-Za-z0-9._-' '_').pid"
 
 # 20. slow herdr: quiet is real time, not a number of ticks
