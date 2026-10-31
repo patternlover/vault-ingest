@@ -218,6 +218,6 @@ when the pane has no manual name. Before writing, the script leaves a
   `"${TMPDIR:-/tmp}"` in a command for the user — PowerShell 5.1 has none of them. The only
   commands you give are `bash '<skill-dir>/scripts/ingest-close'` and, when closing a pane
   that is not this one, `bash '<skill-dir>/scripts/pane-close-later'`.
-- Changing the scripts? `bash '<skill-dir>/scripts/test-all'` must end with `4 suites, 0 failed`.
+- Changing the scripts? `bash '<skill-dir>/scripts/test-all'` must end with `5 suites, 0 failed`.
   The suites run against a fake herdr and fake `config.toml` files in a temp dir: no real
   pane, no real config, no risk.
