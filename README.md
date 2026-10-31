@@ -24,9 +24,9 @@ herdr is missing, only the self-closing pane is lost.
 Clone next to your other skills and link it in, so `git pull` is the whole update story:
 
 ```bash
-git clone https://github.com/patternlover/vault-ingest.git ~/dev/skills/vault-ingest
+git clone https://github.com/patternlover/vault-ingest.git <your-skills-dir>/vault-ingest
 ln -s ~/dev/skills/vault-ingest <skills-dir>/ingest      # e.g. ~/.pi/agent/skills/ingest
-chmod +x ~/dev/skills/vault-ingest/scripts/*
+chmod +x <your-skills-dir>/vault-ingest/scripts/*
 ```
 
 The directory name decides how you invoke it (`/skill:ingest` if the link is called `ingest`);
@@ -40,9 +40,9 @@ vault_root = "/Users/you/dev/vault"
 ```
 
 ```toml
-# <vault_root>/.ingest.md — travels with the vault, stays private
-log_dir = "90 System/Log"
-validator = "node scripts/validate.mjs"
+# <vault_root>/.ingest.toml — travels with the vault, stays private
+log_dir = "log"
+validator = "<command that exits 0>"
 commit_prefix = "[pi]"
 log_lang = "English"
 ```
@@ -62,6 +62,9 @@ bash <skills-dir>/ingest/scripts/ingest-config --check
 | `scripts/pane-close-later` | Waits for N seconds of quiet, then closes the pane. "Quiet" means the pane's agent status is neither `working` nor `blocked`: a new turn restarts the counter, a pane waiting on a question never closes. The countdown is written once per second into the pane title via `herdr pane report-metadata`. Flags: `--pane`, `--tty` (raw panes only), `--idle`, `--poll`, `--log`, `--banner`, `--no-banner`, `--no-title`, `--dry-run`. | It is the whole safety model: the pane closes because the agent is done, not because something killed it. |
 | `scripts/ensure-pane-title` | Writes three keys into the `[ui]` section of herdr's `config.toml` — `pane_borders = "always"`, `pane_outer_borders = true`, `show_agent_labels_on_pane_borders = true` — then runs `herdr server reload-config`. If they are already correct it writes nothing and reloads nothing. Optional argument = explicit config path. | The countdown lives in the title, and the title lives inside the border. With a single pane herdr does not draw the border by default, so the countdown would be invisible. |
 | `scripts/test-all` | Runs every `*.test.sh` here and fails if any suite fails. | `bash scripts/*.test.sh` is not a test runner: bash executes the first file and passes the rest as arguments. |
+
+`ingest-config --file` prints the two config files it actually read — the fastest way to see
+which vault you are about to write into.
 
 Details worth knowing before you trust them:
 
@@ -91,7 +94,7 @@ bash scripts/test-all
 
 It prints each case, a per-suite `N ok, 0 fail`, and a final `4 suites, 0 failed`, returning a
 non-zero exit if anything failed — usable as a gate. On macOS with bash 3.2 the current numbers
-are `55 ok`, `19 ok`, `13 ok`, `37 ok`, stable over repeated runs.
+are `41 ok`, `21 ok`, `13 ok`, `37 ok`, stable over repeated runs.
 
 If you change a script, change its test in the same commit — the suite is the only thing
 standing between you and a pane that closes while a turn is still running.

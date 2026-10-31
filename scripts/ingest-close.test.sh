@@ -8,6 +8,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HERE/ingest-close"
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/ic-test.XXXXXX")"
+export TMPDIR="$TMPROOT/tmp"
+mkdir -p "$TMPDIR"
 PANE="w8:pT01"
 SAN="$(printf '%s' "$PANE" | tr -c 'A-Za-z0-9._-' '_')"
 T="${TMPDIR:-/tmp}"; T="${T%/}"

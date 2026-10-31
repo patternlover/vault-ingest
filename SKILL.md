@@ -30,20 +30,20 @@ Two files, in this order:
    vault_root = "/Users/you/dev/vault"
    ```
 
-2. **Vault file** — `<vault_root>/.ingest.md`, everything else. It lives with the vault
+2. **Vault file** — `<vault_root>/.ingest.toml`, everything else. It lives with the vault
    because it describes that vault, so it is private by construction and travels with the
    notes:
 
    ```toml
-   log_dir = "90 System/Log"
+   log_dir = "log"
    log_file = "<today> pi-<host>.md"
-   validator = "node scripts/validate.mjs"
+   validator = "<command that exits 0>"
    commit_prefix = "[pi]"
    log_lang = "English"
    ```
 
 Never put the machine file inside the vault, and never commit it: it is the one file that
-identifies the machine. `<vault>/.ingest.md` is different — it describes the vault, it holds no
+identifies the machine. `<vault>/.ingest.toml` is different — it describes the vault, it holds no
 secret, and having it in the vault means it travels with the notes to your other machine.
 
 Read the config through the helper instead of parsing it by hand — it applies the defaults and
@@ -97,7 +97,7 @@ per user. Keeping them outside the repo means updates are a pull with no local d
    project note. This is the one thing a fresh session cannot infer; without it the work
    looks finished.
 7. **Log line** in `<log_dir>/<log_file>`, one line per action, in `<log_lang>`, with
-   wikilinks: `- 18:40 — updated [[Checkout tracking]] with the GA4 checkout events`.
+   wikilinks: `- 18:40 — updated [[Some note]] with the events you verified`.
    Before writing, open the most recent file in `<log_dir>` and copy its shape exactly —
    including frontmatter if it has any, because your validator probably walks that folder
    too, and a log file without the required frontmatter turns step 8 red for a reason that
@@ -218,6 +218,6 @@ when the pane has no manual name. Before writing, the script leaves a
   `"${TMPDIR:-/tmp}"` in a command for the user — PowerShell 5.1 has none of them. The only
   commands you give are `bash '<skill-dir>/scripts/ingest-close'` and, when closing a pane
   that is not this one, `bash '<skill-dir>/scripts/pane-close-later'`.
-- Changing the scripts? `bash '<skill-dir>/scripts/test-all'` must end with `3 suites, 0 failed`.
+- Changing the scripts? `bash '<skill-dir>/scripts/test-all'` must end with `4 suites, 0 failed`.
   The suites run against a fake herdr and fake `config.toml` files in a temp dir: no real
   pane, no real config, no risk.

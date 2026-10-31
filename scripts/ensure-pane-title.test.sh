@@ -7,6 +7,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HERE/ensure-pane-title"
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/ept-test.XXXXXX")"
+export TMPDIR="$TMPROOT/tmp"
+mkdir -p "$TMPDIR"
 pass=0
 fail=0
 

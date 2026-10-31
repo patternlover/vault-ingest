@@ -10,8 +10,11 @@
 #        $XDG_CONFIG_HOME/vault-ingest/config.toml
 #        ~/.config/vault-ingest/config.toml      (macOS, Linux)
 #        %APPDATA%\vault-ingest\config.toml      (Windows)
-#   2. the vault file, `<vault_root>/.ingest.md`, which overrides everything else.
+#   2. the vault file, `<vault_root>/.ingest.toml`, which overrides everything else.
 #      It lives in the vault because it describes that vault, so it stays private.
+#      `.toml`, not `.md`: a markdown file there would look like a note to the vault's own
+#      validator (frontmatter required) when it is not one. `.ingest.md` still works as a
+#      fallback for vaults that do not validate their root.
 #
 # Usage:
 #   ingest-config              print every resolved key as KEY=value
@@ -75,7 +78,8 @@ value_of() {
     *)
       v="$(read_key "$machine_file" "$key")" || v=""
       vault="$(value_of vault_root)"
-      vault_file="$vault/.ingest.md"
+      vault_file="$vault/.ingest.toml"
+      [ -f "$vault_file" ] || vault_file="$vault/.ingest.md"
       if [ -n "$vault" ] && [ -f "$vault_file" ]; then
         local over
         over="$(read_key "$vault_file" "$key")" && v="$over"
@@ -90,7 +94,9 @@ case "${1:-}" in
   --file)
     printf '%s\n' "${machine_file:-no machine file}"
     vault="$(value_of vault_root)"
-    [ -n "$vault" ] && printf '%s\n' "$vault/.ingest.md"
+    for f in "$vault/.ingest.toml" "$vault/.ingest.md"; do
+      [ -n "$vault" ] && [ -f "$f" ] && printf '%s\n' "$f"
+    done
     exit 0
     ;;
   --check)

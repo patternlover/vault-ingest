@@ -6,13 +6,22 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HERE/ingest-config"
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/icfg-test.XXXXXX")"
+export TMPDIR="$TMPROOT/tmp"
+mkdir -p "$TMPDIR"
 trap 'rm -rf "$TMPROOT"' EXIT
 pass=0
 fail=0
 ok() { pass=$((pass + 1)); printf '  ok   %s\n' "$1"; }
 ko() { fail=$((fail + 1)); printf '  FAIL %s\n' "$1"; }
 
-run() { INGEST_CONFIG="$CFG" bash "$TARGET" "$@"; }
+HOMEFIX="$TMPROOT/home"
+mkdir -p "$HOMEFIX"
+# Isola la macchina: senza questo il test legge la config vera dell'utente
+# (~/.config/vault-ingest/config.toml) e il caso "nessuna config" passa per sbaglio.
+run() {
+  HOME="$HOMEFIX" XDG_CONFIG_HOME="$HOMEFIX/.config" APPDATA="$HOMEFIX/appdata" \
+    INGEST_CONFIG="$CFG" bash "$TARGET" "$@"
+}
 
 echo "ingest-config: test"
 
@@ -40,29 +49,34 @@ CFG="$TMPROOT/machine.toml"
 cat > "$CFG" <<EOF
 [ingest]
 vault_root   =   "$VAULT"
-validator = "node scripts/validate.mjs"   # commento in linea
+validator = "true"   # commento in linea
 
-commit_prefix = "[pi-home]"
+commit_prefix = "[bot]"
 EOF
 [ "$(run vault_root)" = "$VAULT" ] && ok "machine file: reads vault_root" || { ko "machine file: reads vault_root"; run vault_root; }
-[ "$(run validator)" = "node scripts/validate.mjs" ] && ok "machine file: strips quotes and trailing comment" || { ko "machine file: strips quotes and trailing comment"; run validator; }
-[ "$(run commit_prefix)" = "[pi-home]" ] && ok "machine file: reads commit_prefix" || ko "machine file: reads commit_prefix"
+[ "$(run validator)" = "true" ] && ok "machine file: strips quotes and trailing comment" || { ko "machine file: strips quotes and trailing comment"; run validator; }
+[ "$(run commit_prefix)" = "[bot]" ] && ok "machine file: reads commit_prefix" || ko "machine file: reads commit_prefix"
 
 # 4. file del vault: vince sul file macchina, e accetta anche `chiave: valore`
-cat > "$VAULT/.ingest.md" <<'EOF'
+cat > "$VAULT/.ingest.toml" <<'EOF'
 # Config di questo vault
-log_dir: 90 System/Log
-log_lang: italiano
+log_dir: log
+log_lang: english
 validator: none
 EOF
-[ "$(run log_dir)" = "90 System/Log" ] && ok "vault file: wins over the machine file" || { ko "vault file: wins over the machine file"; run log_dir; }
-[ "$(run log_lang)" = "italiano" ] && ok "vault file: colon syntax" || ko "vault file: colon syntax"
+[ "$(run log_dir)" = "log" ] && ok "vault file: wins over the machine file" || { ko "vault file: wins over the machine file"; run log_dir; }
+[ "$(run log_lang)" = "english" ] && ok "vault file: colon syntax" || ko "vault file: colon syntax"
 [ "$(run validator)" = "none" ] && ok "vault file: overrides a default" || ko "vault file: overrides a default"
 
 # 5. --file elenca macchina e vault; --check passa
 run --file | grep -x "$CFG" >/dev/null && ok "--file: machine file" || ko "--file: machine file"
-run --file | grep -x "$VAULT/.ingest.md" >/dev/null && ok "--file: vault file" || ko "--file: vault file"
+run --file | grep -x "$VAULT/.ingest.toml" >/dev/null && ok "--file: vault file" || ko "--file: vault file"
 run --check >/dev/null 2>&1 && ok "--check: green" || ko "--check: green"
+
+# 5b. fallback: un vault con .ingest.md (vecchio schema) si legge lo stesso
+mv "$VAULT/.ingest.toml" "$VAULT/.ingest.md"
+[ "$(run log_dir)" = "log" ] && ok "fallback: .ingest.md" || ko "fallback: .ingest.md"
+mv "$VAULT/.ingest.md" "$VAULT/.ingest.toml"
 
 # 6. tutte le chiavi in un colpo, senza valori vuoti
 all="$(run)"

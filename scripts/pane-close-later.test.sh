@@ -6,6 +6,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HERE/pane-close-later"
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/pcl-test.XXXXXX")"
+export TMPDIR="$TMPROOT/tmp"
+mkdir -p "$TMPDIR"
 trap 'rm -rf "$TMPROOT"; rm -f "${TMPDIR:-/tmp}"/pane-close-later-w5_pT*' EXIT
 pass=0
 fail=0
