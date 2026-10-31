@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: Close a working session into a markdown second-brain vault — find or update the right note, append the log line, run the validator, make one commit with explicit paths, push — then schedule this pane to close itself after 30 seconds of quiet, with the countdown in the pane title. Use it at the end of any session that produced knowledge worth keeping: when the user says "ingest", "close the session", "save this to the vault", "write it to the brain", "wrap up and commit", or types /skill:ingest. Also use it when a session is about to end and nothing has been written yet.
+description: "Close a working session into a markdown second-brain vault — find or update the right note, append the log line, run the validator, make one commit with explicit paths, push — then schedule this pane to close itself after 30 seconds of quiet, with the countdown in the pane title. Use it at the end of any session that produced knowledge worth keeping: when the user says \"ingest\", \"close the session\", \"save this to the vault\", \"write it to the brain\", \"wrap up and commit\", or types /skill:ingest. Also use it when a session is about to end and nothing has been written yet."
 ---
 
 # Ingest at the end of a session

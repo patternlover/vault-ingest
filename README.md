@@ -92,9 +92,14 @@ closed and no real config is touched. They need `bash` (3.2 is fine).
 bash scripts/test-all
 ```
 
-It prints each case, a per-suite `N ok, 0 fail`, and a final `4 suites, 0 failed`, returning a
+It prints each case, a per-suite `N ok, 0 fail`, and a final `5 suites, 0 failed`, returning a
 non-zero exit if anything failed — usable as a gate. On macOS with bash 3.2 the current numbers
-are `41 ok`, `21 ok`, `13 ok`, `37 ok`, stable over repeated runs.
+are `11 ok`, `41 ok`, `21 ok`, `13 ok`, `37 ok`, stable over repeated runs.
+
+One of those suites reads this `SKILL.md` and checks its frontmatter: a `description` containing
+`: ` inside an unquoted YAML scalar makes the file invalid, and pi drops the skill **silently** —
+`/skill:ingest` simply does not exist. That happened here in v0.1.0-v0.1.2, which is why the
+description is a quoted string and why the check runs with the rest.
 
 If you change a script, change its test in the same commit — the suite is the only thing
 standing between you and a pane that closes while a turn is still running.
