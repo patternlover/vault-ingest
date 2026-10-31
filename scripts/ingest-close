@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# ingest-close — schedule this pane to close itself after N seconds of quiet.
+#
+# Usage:
+#   ingest-close        close this pane after 30s of quiet
+#   ingest-close 60     same, 60s
+#
+# No second pane: the countdown runs in this pane's title (herdr report-metadata), one
+# line per second, and the pane closes when the countdown is over.
+#
+# Resolves the pane, launches `pane-close-later` detached with `nohup`, and returns at
+# once. If the pane cannot be resolved it exits 1 **without** scheduling anything:
+# better a leftover pane than a half-finished session.
+#
+# Why a script instead of a hand-written `nohup ... >>... 2>&1 &`: on Windows the agent
+# runs in PowerShell 5.1, where `nohup`, `$(...)` and `"${TMPDIR:-/tmp}"` do not exist.
+# The only command the agent types is `bash '<this file>'`, and it works on both machines.
+#
+# Env: PANE_CLOSE_HERDR — alternative herdr binary (used by the tests).
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERDR="${PANE_CLOSE_HERDR:-herdr}"
+idle="${1:-30}"
+
+case "$idle" in
+  ''|*[!0-9]*) printf 'seconds are not numeric: %s\n' "$idle" >&2; exit 2 ;;
+esac
+
+command -v nohup >/dev/null 2>&1 || { printf 'nohup not found: Git Bash is required\n' >&2; exit 1; }
+command -v "$HERDR" >/dev/null 2>&1 || { printf 'herdr not found: %s\n' "$HERDR" >&2; exit 1; }
+
+pane="$("$HERDR" pane current 2>/dev/null | sed -n 's/.*"pane_id":"\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$pane" ] || pane="${HERDR_PANE_ID:-}"
+if [ -z "$pane" ]; then
+  printf 'pane not resolved: no HERDR_PANE_ID and herdr pane current is silent\n' >&2
+  exit 1
+fi
+
+out="${TMPDIR:-/tmp}/pane-close-later.log"
+nohup bash "$HERE/pane-close-later" "$idle" --pane "$pane" >>"$out" 2>&1 &
+pid=$!
+
+printf 'scheduled: %ss of quiet, countdown in the title of %s (pid %s)\n' "$idle" "$pane" "$pid"
+printf 'script log lines: %s\n' "${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$pane" | tr -c 'A-Za-z0-9._-' '_').log"

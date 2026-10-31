@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# pane-close-later — close a herdr pane after N seconds of quiet, with a countdown in the title.
+#
+# Usage:
+#   pane-close-later                 close the current pane after 30s of quiet
+#   pane-close-later 120             same, 120s
+#   pane-close-later --pane w5:p3    close an explicit pane
+#   pane-close-later --tty /dev/ttys003   RAW panes only: write the countdown to the terminal
+#   pane-close-later --no-banner     drop the "[LOG] Ingest Completed" prefix
+#   pane-close-later --no-title      leave the pane title alone (log only)
+#   pane-close-later --log <path>    where it writes its lines (default: TMPDIR)
+#   pane-close-later --dry-run       say what it would do, close nothing, write nothing
+#
+# "Quiet" = the pane's agent status is neither `working` nor `blocked`. The counter restarts
+# from zero on every active status, so a new turn is never killed; `blocked` (a question or
+# an approval waiting) never closes.
+#
+# The countdown goes in the pane title (herdr report-metadata), once per second:
+#   [LOG] Ingest Completed · Pane closing in: 30s
+# That title is the only signal: ingest does not open a second pane to watch. Nothing is
+# written to the TUI's tty, because there the text lands above the prompt, inside the input
+# box, and breaks the drawing (seen on a pi pane on 2026-10-30). `--tty` stays for raw
+# panes (a shell, a log), never for an agent.
+#
+# It must be launched detached from the pane, otherwise it dies with it:
+#   nohup pane-close-later 30 >>"${TMPDIR:-/tmp}/pane-close-later.log" 2>&1 &
+#
+# Env: PANE_CLOSE_HERDR — alternative herdr binary (used by the tests).
+set -uo pipefail
+
+HERDR="${PANE_CLOSE_HERDR:-herdr}"
+POLL=1
+idle_target=30
+banner="[LOG] Ingest Completed"
+pane=""
+pane_explicit=0
+tty=""
+dry=0
+use_title=1
+log=""
+
+usage() {
+  # Leading comment block only: not a line range, which drifts as soon as a line is
+  # added to the header comment.
+  awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "${BASH_SOURCE[0]}"
+}
+
+say() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pane) pane="${2:?--pane needs an id}"; pane_explicit=1; shift 2 ;;
+    --pane=*) pane="${1#*=}"; pane_explicit=1; shift ;;
+    --tty) tty="${2:?--tty needs a path}"; shift 2 ;;
+    --tty=*) tty="${1#*=}"; shift ;;
+    --idle) idle_target="${2:?--idle needs seconds}"; shift 2 ;;
+    --poll) POLL="${2:?--poll needs seconds}"; shift 2 ;;
+    --log) log="${2:?--log needs a path}"; shift 2 ;;
+    --banner) banner="${2?--banner needs a text}"; shift 2 ;;
+    --no-banner) banner=""; shift ;;
+    --no-title) use_title=0; shift ;;
+    --dry-run) dry=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) printf 'unknown option: %s\n' "$1" >&2; exit 2 ;;
+    *) idle_target="$1"; shift ;;
+  esac
+done
+
+case "$idle_target" in
+  ''|*[!0-9]*) printf 'seconds are not numeric: %s\n' "$idle_target" >&2; exit 2 ;;
+esac
+case "$POLL" in
+  ''|*[!0-9]*|0) printf 'poll is not numeric or is zero: %s\n' "$POLL" >&2; exit 2 ;;
+esac
+[ "$idle_target" -ge "$POLL" ] || { printf 'idle (%ss) is lower than poll (%ss)\n' "$idle_target" "$POLL" >&2; exit 2; }
+
+command -v "$HERDR" >/dev/null 2>&1 || { printf 'herdr not found: %s\n' "$HERDR" >&2; exit 1; }
+
+pane_id_of() {
+  "$HERDR" pane current 2>/dev/null | sed -n 's/.*"pane_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+# `agent_status` may arrive with or without spaces after the colon: a rigid regex reads a
+# valid JSON answer as a vanished pane.
+status_of() {
+  "$HERDR" pane get "$1" 2>/dev/null | sed -n 's/.*"agent_status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+# The lock is live only if the pid exists AND is still running this script: a pid recycled
+# by another process (after a kill -9) would block the countdown forever.
+lock_is_live() {
+  kill -0 "$1" 2>/dev/null || return 1
+  cmd="$(ps -p "$1" -o command= 2>/dev/null | head -1)"
+  [ -z "$cmd" ] && return 0   # ps not usable here: trust kill -0
+  case "$cmd" in
+    *pane-close-later*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "$pane_explicit" -eq 0 ]; then
+  current="$(pane_id_of)"
+  if [ -n "$current" ]; then
+    if [ -n "$pane" ] && [ "$pane" != "$current" ]; then
+      printf 'HERDR_PANE_ID=%s does not match the current pane %s: using %s\n' "$pane" "$current" "$current" >&2
+    fi
+    pane="$current"
+  else
+    pane="${HERDR_PANE_ID:-}"
+  fi
+fi
+
+if [ -z "$pane" ]; then
+  printf 'pane not resolved: no HERDR_PANE_ID and herdr pane current is silent\n' >&2
+  exit 1
+fi
+
+if [ -z "$log" ]; then
+  log="${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$pane" | tr -c 'A-Za-z0-9._-' '_').log"
+fi
+exec >>"$log" 2>&1
+
+# Log line, and a tty line only when explicitly requested (raw pane, not a TUI):
+# \r returns to column 0, \n ends the line.
+emit() {
+  say "$1"
+  if [ -n "$tty" ] && [ "$dry" -eq 0 ]; then
+    if [ -w "$tty" ] || { [ ! -e "$tty" ] && [ -w "$(dirname "$tty")" ]; }; then
+      printf '\r%s\r\n' "$1" >>"$tty" 2>/dev/null || true
+    fi
+  fi
+  return 0
+}
+
+# Countdown in the pane title: display only, touches neither content nor input.
+title() {
+  [ "$use_title" -eq 1 ] && [ "$dry" -eq 0 ] || return 0
+  "$HERDR" pane report-metadata "$pane" --source pane-close-later --title "$1" --ttl-ms 15000 >/dev/null 2>&1 || true
+  return 0
+}
+
+clear_title() {
+  [ "$use_title" -eq 1 ] && [ "$dry" -eq 0 ] || return 0
+  "$HERDR" pane report-metadata "$pane" --source pane-close-later --clear-title >/dev/null 2>&1 || true
+  return 0
+}
+
+lock="${TMPDIR:-/tmp}/pane-close-later-$(printf '%s' "$pane" | tr -c 'A-Za-z0-9._-' '_').pid"
+if [ -f "$lock" ]; then
+  other="$(cat "$lock" 2>/dev/null)"
+  if [ -n "$other" ] && lock_is_live "$other"; then
+    say "already waiting on pane $pane (pid $other), exiting"
+    exit 0
+  fi
+fi
+printf '%s\n' "$$" > "$lock"
+trap 'clear_title; rm -f "$lock"' EXIT
+trap 'exit 0' INT TERM
+
+say "start: pane=$pane tty=${tty:-none} title=$use_title quiet=${idle_target}s poll=${POLL}s dry_run=$dry"
+
+quiet=0
+quiet_start=""
+was_idle=0
+errors=0
+while :; do
+  status="$(status_of "$pane")"
+  if [ -z "$status" ]; then
+    # One silent answer is not a dead pane: retry a few times before giving up, otherwise
+    # a single hiccup in `pane get` cancels the countdown.
+    errors=$((errors + 1))
+    if [ "$errors" -ge 3 ]; then
+      say "pane $pane did not answer for $errors rounds, exiting without closing"
+      exit 0
+    fi
+    say "herdr is not answering (round $errors), retrying"
+    sleep "$POLL"
+    continue
+  fi
+  errors=0
+  case "$status" in
+    working|blocked)
+      if [ "$was_idle" -eq 1 ]; then
+        emit "[LOG] activity detected ($status): countdown cancelled"
+        title "[LOG] activity detected ($status): countdown cancelled"
+      fi
+      was_idle=0
+      quiet_start=""
+      quiet=0
+      sleep "$POLL"
+      continue
+      ;;
+  esac
+
+  # Quiet is measured in real time, not in ticks: if `pane get` takes 1.2s, a tick counter
+  # runs slower than the clock and the pane stays open past the threshold.
+  was_idle=1
+  [ -n "$quiet_start" ] || quiet_start="$SECONDS"
+  quiet=$((SECONDS - quiet_start))
+
+  if [ "$quiet" -ge "$idle_target" ]; then
+    if [ "$dry" -eq 1 ]; then
+      say "dry-run: would have closed $pane (quiet ${quiet}s, status $status)"
+      exit 0
+    fi
+    emit "[LOG] Pane closing now"
+    say "closing $pane (quiet ${quiet}s, status $status)"
+    clear_title
+    "$HERDR" pane close "$pane" >/dev/null 2>&1
+    rc=$?
+    exit $rc
+  fi
+
+  remaining=$((idle_target - quiet))
+  if [ -n "$banner" ]; then
+    line="$banner · Pane closing in: ${remaining}s"
+  else
+    line="Pane closing in: ${remaining}s"
+  fi
+  emit "$line"
+  title "$line"
+  sleep "$POLL"
+done

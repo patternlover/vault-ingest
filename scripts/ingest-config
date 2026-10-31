@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ingest-config — risolve la configurazione della skill senza cablarla in SKILL.md.
+#
+# La logica (un commit, path espliciti, validatore, riga di log) vale per qualunque vault;
+# i nomi no. Stanno fuori dal repo, in due posti, e questa e' l'unica cosa che li legge:
+#
+#   1. il file macchina, per trovare il vault:
+#        $INGEST_CONFIG
+#        $XDG_CONFIG_HOME/vault-ingest/config.toml
+#        ~/.config/vault-ingest/config.toml      (macOS, Linux)
+#        %APPDATA%\vault-ingest\config.toml      (Windows)
+#   2. il file del vault, `<vault_root>/.ingest.md`, che sovrascrive tutto il resto.
+#      Sta nel vault perche' e' privato: non finisce mai nel repo pubblico.
+#
+# Uso:
+#   ingest-config              stampa tutte le chiavi risolte come KEY=valore
+#   ingest-config <key>        stampa solo il valore (exit 1 se vuoto)
+#   ingest-config --file       stampa i file di config letti
+#   ingest-config --check      verifica che vault_root esista e che il file vault si legga
+#
+# Chiavi: vault_root vault_marker log_dir log_file validator commit_prefix log_lang notes_dirs
+# Formato accettato, per riga: `chiave = "valore"`, `chiave = valore`, `chiave: valore`.
+# Commenti con #. Sezioni [ingest] ignorate (le chiavi valgono comunque).
+#
+# Env: INGEST_CONFIG — path del file macchina (usato anche dai test).
+set -uo pipefail
+
+KEYS="vault_root vault_marker log_dir log_file validator commit_prefix log_lang notes_dirs"
+
+defaults() {
+  case "$1" in
+    vault_marker) printf 'AGENTS.md' ;;
+    log_dir) printf 'log' ;;
+    log_file) printf '' ;;
+    validator) printf 'none' ;;
+    commit_prefix) printf '[pi]' ;;
+    log_lang) printf '' ;;
+    notes_dirs) printf '' ;;
+    *) printf '' ;;
+  esac
+}
+
+machine_file=""
+for c in "${INGEST_CONFIG:-}" \
+         "${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/vault-ingest/config.toml}" \
+         "${HOME:+$HOME/.config/vault-ingest/config.toml}" \
+         "${APPDATA:+$APPDATA/vault-ingest/config.toml}"; do
+  [ -n "$c" ] || continue
+  machine_file="$c"
+  [ -f "$c" ] && break
+done
+
+# Legge una chiave da un file: prima `k = v` (TOML-lite), poi `k: v`.
+# Le virgolette attorno al valore si tolgono; il resto resta com'e'.
+read_key() {
+  local file="$1" key="$2" raw
+  [ -f "$file" ] || return 1
+  raw="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | head -1)"
+  if [ -z "$raw" ]; then
+    raw="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*//p" "$file" | head -1)"
+  fi
+  [ -n "$raw" ] || return 1
+  raw="${raw%%#*}"
+  raw="$(printf '%s' "$raw" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//')"
+  [ -n "$raw" ] || return 1
+  printf '%s' "$raw"
+}
+
+value_of() {
+  local key="$1" v vault vault_file
+  case "$key" in
+    vault_root)
+      v="$(read_key "$machine_file" vault_root)" || v=""
+      ;;
+    *)
+      v="$(read_key "$machine_file" "$key")" || v=""
+      vault="$(value_of vault_root)"
+      vault_file="$vault/.ingest.md"
+      if [ -n "$vault" ] && [ -f "$vault_file" ]; then
+        local over
+        over="$(read_key "$vault_file" "$key")" && v="$over"
+      fi
+      ;;
+  esac
+  [ -n "$v" ] || v="$(defaults "$key")"
+  printf '%s' "$v"
+}
+
+case "${1:-}" in
+  --file)
+    printf '%s\n' "${machine_file:-nessun file macchina}"
+    vault="$(value_of vault_root)"
+    [ -n "$vault" ] && printf '%s\n' "$vault/.ingest.md"
+    exit 0
+    ;;
+  --check)
+    vault="$(value_of vault_root)"
+    marker="$(value_of vault_marker)"
+    if [ -z "$vault" ]; then
+      printf 'vault_root non configurato: scrivi %s\n' "${machine_file:-~/.config/vault-ingest/config.toml}" >&2
+      exit 1
+    fi
+    [ -d "$vault" ] || { printf 'vault_root non esiste: %s\n' "$vault" >&2; exit 1; }
+    if [ "$marker" = "AGENTS.md" ] && [ ! -f "$vault/$marker" ]; then
+      printf 'attenzione: %s non ha %s (marker di default)\n' "$vault" "$marker" >&2
+    fi
+    printf 'config ok: vault=%s log=%s validatore=%s\n' "$vault" "$(value_of log_dir)" "$(value_of validator)"
+    exit 0
+    ;;
+  '' )
+    for k in $KEYS; do printf '%s=%s\n' "$k" "$(value_of "$k")"; done
+    exit 0
+    ;;
+  -*)
+    printf 'opzione non riconosciuta: %s\n' "$1" >&2; exit 2
+    ;;
+  *)
+    out="$(value_of "$1")"
+    [ -n "$out" ] || { printf 'chiave vuota o sconosciuta: %s\n' "$1" >&2; exit 1; }
+    printf '%s\n' "$out"
+    ;;
+esac

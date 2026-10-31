@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# test-all — run every *.test.sh in this directory and fail if any of them fails.
+#
+# Why this exists: `bash scripts/*.test.sh` does NOT do what it looks like. bash runs the
+# first file and passes the rest as positional arguments, so the other suites never run and
+# the exit code is the first one's. A loop is the only correct form.
+#
+# Usage: bash scripts/test-all
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+suites=0
+failed=0
+failed_names=""
+
+for t in "$HERE"/*.test.sh; do
+  [ -f "$t" ] || continue
+  suites=$((suites + 1))
+  printf '\n### %s\n' "$(basename "$t")"
+  if ! bash "$t"; then
+    failed=$((failed + 1))
+    failed_names="$failed_names $(basename "$t")"
+  fi
+done
+
+if [ "$suites" -eq 0 ]; then
+  printf 'no *.test.sh found in %s\n' "$HERE" >&2
+  exit 1
+fi
+
+printf '\n%d suites, %d failed' "$suites" "$failed"
+[ "$failed" -eq 0 ] || printf ':%s' "$failed_names"
+printf '\n'
+[ "$failed" -eq 0 ]

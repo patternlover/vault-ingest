@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# ensure-pane-title — make the pane title visible even when there is a single pane.
+#
+# The ingest countdown lives in the pane TITLE, and the title lives inside the border:
+# with a single pane herdr does not draw the border (`pane_borders = "auto"` is the
+# default), so the countdown is invisible. This script writes the three keys into `[ui]`
+# of config.toml **once**: if they are already correct it touches nothing and reloads
+# nothing.
+#
+# Usage:
+#   bash '<skill-dir>/scripts/ensure-pane-title'              find the config the way herdr does
+#   bash '<skill-dir>/scripts/ensure-pane-title' '<path>'     a path you decided on
+#
+# When the config cannot be found the script does not guess: it prints the paths it tried
+# and leaves the decision to whoever launched it. On Windows the file is
+# %APPDATA%\herdr\config.toml, so if the search fails (`herdr config check` prints no path)
+# the right move is to pass it: an explicit path is the only case where the script creates
+# the file when it is missing, because there the location is a decision, not a guess.
+#
+# It exits 0 if the title is (or has become) visible, 1 if it could not: ingest carries on
+# anyway and only the countdown and the border are lost.
+#
+# Env: ENSURE_TITLE_CONFIG — explicit path (alternative to the argument, used by the tests).
+#      ENSURE_TITLE_HERDR  — alternative herdr binary (used by the tests).
+set -uo pipefail
+
+HERDR="${ENSURE_TITLE_HERDR:-herdr}"
+
+# Same precedence as herdr (`config_path()` in src/config/io.rs): herdr's own variable wins
+# over everything, then XDG_CONFIG_HOME, then the platform default (on Windows
+# %APPDATA%\herdr, with %USERPROFILE%\AppData\Roaming as a fallback).
+cfg="${1:-${ENSURE_TITLE_CONFIG:-}}"
+explicit=0
+[ -n "$cfg" ] && explicit=1
+
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) win=1 ;;
+  *) win=0 ;;
+esac
+[ -n "${APPDATA:-}" ] && win=1
+
+candidates=""
+if [ "$explicit" -eq 0 ]; then
+  if [ -n "${HERDR_CONFIG_PATH:-}" ]; then
+    cfg="$HERDR_CONFIG_PATH"
+  else
+    set -- \
+      "${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/herdr/config.toml}" \
+      "${APPDATA:+$APPDATA/herdr/config.toml}" \
+      "${USERPROFILE:+$USERPROFILE/AppData/Roaming/herdr/config.toml}" \
+      "${HOME:+$HOME/.config/herdr/config.toml}"
+    for c in "$@"; do
+      [ -n "$c" ] || continue
+      candidates="$candidates
+  $c"
+      [ -f "$c" ] && { cfg="$c"; break; }
+    done
+  fi
+fi
+
+if [ -z "$cfg" ]; then
+  printf 'herdr config not found. Tried:%s\n' "$candidates"
+  printf 'pass the path: bash <this script> /path/to/config.toml  (Windows: %%APPDATA%%\\herdr\\config.toml)\n'
+  exit 0
+fi
+
+if [ "$explicit" -eq 1 ] && [ ! -f "$cfg" ]; then
+  mkdir -p "$(dirname "$cfg")" 2>/dev/null
+  : > "$cfg" || { printf 'cannot create %s\n' "$cfg" >&2; exit 1; }
+  newfile=1
+fi
+
+if [ ! -f "$cfg" ]; then
+  printf 'config not found at %s: nothing to enable (the pane title stays invisible)\n' "$cfg"
+  exit 0
+fi
+
+
+# The three keys count as present only inside [ui] with the exact value: a leftover `false`
+# or an `"auto"` counts as disabled.
+state() {
+  awk '
+    {
+      t = $0
+      gsub(/^[ \t\r]+|[ \t\r]+$/, "", t)
+      if (t ~ /^\[/) {
+        s = t; sub(/^\[+/, "", s); sub(/\].*$/, "", s); gsub(/[ \t]/, "", s); sec = s
+        next
+      }
+      if (sec != "ui") next
+      k = t; sub(/[ \t]*=.*/, "", k); gsub(/[ \t\r]/, "", k)
+      v = t; sub(/^[^=]*=/, "", v); gsub(/^[ \t\r]+|[ \t\r]+$/, "", v)
+      if (k == "pane_borders" && v == "\"always\"") pb = 1
+      if (k == "pane_outer_borders" && v == "true") po = 1
+      if (k == "show_agent_labels_on_pane_borders" && v == "true") sa = 1
+    }
+    END { exit (pb && po && sa) ? 0 : 1 }
+  ' "$1"
+}
+
+if state "$cfg"; then
+  printf 'pane title already ok: %s\n' "$cfg"
+  exit 0
+fi
+
+backup="$cfg.before-pane-title"
+if [ "${newfile:-0}" -eq 0 ] && [ ! -f "$backup" ]; then
+  cp "$cfg" "$backup" || { printf 'backup failed: %s\n' "$backup" >&2; exit 1; }
+fi
+
+tmp="$cfg.tmp-pane-title.$$"
+awk '
+  function emit() {
+    print "pane_borders = \"always\""
+    print "pane_outer_borders = true"
+    print "show_agent_labels_on_pane_borders = true"
+  }
+  {
+    raw = $0
+    t = raw
+    gsub(/^[ \t\r]+|[ \t\r]+$/, "", t)
+    if (t ~ /^\[/) {
+      s = t; sub(/^\[+/, "", s); sub(/\].*$/, "", s); gsub(/[ \t]/, "", s)
+      in_ui = (s == "ui") ? 1 : 0
+      print raw
+      if (in_ui == 1) { seen_ui = 1; emit() }
+      next
+    }
+    if (in_ui == 1) {
+      k = t; sub(/[ \t]*=.*/, "", k); gsub(/[ \t\r]/, "", k)
+      if (k == "pane_borders" || k == "pane_outer_borders" || k == "show_agent_labels_on_pane_borders") next
+    }
+    print raw
+  }
+  END {
+    if (!seen_ui) { print ""; print "[ui]"; emit() }
+  }
+' "$cfg" > "$tmp" || { rm -f "$tmp"; printf 'rewrite failed: %s\n' "$cfg" >&2; exit 1; }
+
+mv "$tmp" "$cfg" || { rm -f "$tmp"; printf 'write failed: %s\n' "$cfg" >&2; exit 1; }
+
+if ! command -v "$HERDR" >/dev/null 2>&1; then
+  printf 'config updated but herdr not found (%s): restart herdr to see it\n' "$HERDR" >&2
+  exit 1
+fi
+if ! out="$("$HERDR" server reload-config 2>&1)"; then
+  if [ "${newfile:-0}" -eq 1 ]; then
+    rm -f "$cfg"
+    printf 'reload failed, config created by me and removed: %s\n' "$out" >&2
+  else
+    cp "$backup" "$cfg"
+    printf 'reload failed, config restored: %s\n' "$out" >&2
+  fi
+  exit 1
+fi
+
+printf 'pane title enabled: borders always, even with a single pane (%s)\n' "$cfg"
