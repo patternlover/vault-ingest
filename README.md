@@ -92,9 +92,10 @@ closed and no real config is touched. They need `bash` (3.2 is fine).
 bash scripts/test-all
 ```
 
-It prints each case, a per-suite `N ok, 0 fail`, and a final `5 suites, 0 failed`, returning a
-non-zero exit if anything failed — usable as a gate. On macOS with bash 3.2 the current numbers
-are `11 ok`, `41 ok`, `21 ok`, `13 ok`, `37 ok`, stable over repeated runs.
+It prints each case, a per-suite `N ok, 0 fail`, and a final `N suites, 0 failed`, returning a
+non-zero exit if anything failed — usable as a gate. The suite count is not quoted here on
+purpose: adding a suite (`skill-cwd-independence.test.sh` was the sixth) does not make this
+paragraph a lie.
 
 One of those suites reads this `SKILL.md` and checks its frontmatter: a `description` containing
 `: ` inside an unquoted YAML scalar makes the file invalid, and pi drops the skill **silently** —
