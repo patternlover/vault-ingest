@@ -69,7 +69,13 @@ Why a config file and not a rewrite: the skill ships as one file per user, but p
 per user. Keeping them outside the repo means updates are a pull with no local diff to carry.
 
 ## Steps
-## Steps
+
+**Every command below names the vault, never the session's cwd.** `<vault_root>` from step 1 is
+this protocol's working directory: an ingest often runs from a pane sitting in an unrelated
+repository, and that is normal, not an error. So `git -C <vault_root> ...` for git, and
+`bash -c 'cd <vault_root> && <command>'` for anything else. A bare `git` would pull, commit and
+push whatever repository the pane is in, and a bare `<validator>` would check that repository
+instead of the vault.
 
 1. **Find the vault.** Start with `bash '<skill-dir>/scripts/ingest-config'`: one
    `key=value` line per setting, defaults applied. Every `<key>` below is one of those
@@ -77,10 +83,10 @@ per user. Keeping them outside the repo means updates are a pull with no local d
    ask the user for the path and write it in the machine file from the Config section — then
    run it again. Never invent a path: a commit written into the wrong directory is worse than
    no commit.
-2. **Sync.** `git -c rebase.autoStash=true pull --rebase`. `autoStash` keeps the vault's own
+2. **Sync.** `git -C <vault_root> -c rebase.autoStash=true pull --rebase`. `autoStash` keeps the vault's own
    editor metadata (graph/workspace JSON that the editor rewrites on its own) out of the way
    — never commit those files.
-3. **Read before writing.** The vault's own `AGENTS.md` (or equivalent convention file),
+3. **Read before writing.** The vault's own `<vault_root>/AGENTS.md` (or equivalent convention file),
    then look for the note that should already hold this fact by name, aliases, tags and
    text. If it exists, update it. Never create a second note for the same fact.
 4. **Decide what to keep** using the table below. Only facts verified during this session:
@@ -104,18 +110,22 @@ per user. Keeping them outside the repo means updates are a pull with no local d
    has nothing to do with the work. If `<log_dir>` does not exist, create it. If `<log_file>`
    is empty and today has no log yet, reuse the naming of the most recent one with today's
    date instead of inventing a second scheme: the log is read by day, not by machine.
-8. **Validator.** Run `<validator>`; with `none`, skip the step and say so in the report.
+8. **Validator.** Run `<validator>` inside the vault: `bash -c 'cd <vault_root> && <validator>'`.
+   With `none`, skip the step and say so in the report.
    Exit 0 is mandatory. On a non-zero exit: one attempt to
    fix, then stop, report what is red, and **do not schedule the pane close** — a vault that
    fails its own check should stay open in front of the human.
-9. **One commit.** Explicit paths, never `git add -A`: another session may be working in the
+9. **One commit.** `git -C <vault_root> add -- <paths>` then `git -C <vault_root> commit`:
+   explicit paths, never `git add -A` — another session may be working in the
    same directory, and `-A` would swallow its half-finished files. Message
    `<commit_prefix> <action>: <description>`, where `<action>` is
    `create | update | move | delete | log` — the dominant one when a session both adds a file
    and edits another. "Yours" means the paths you touched in this session: if those are the
-   only thing `git status` lists, commit; if it lists nothing you touched, commit nothing,
-   because an empty commit is noise and a commit of someone else's half-work is a conflict.
-10. **Push.** `git -c rebase.autoStash=true pull --rebase` then `git push`. Two machines stay
+   only thing `git -C <vault_root> status` lists, commit; if it lists nothing you touched,
+   commit nothing, because an empty commit is noise and a commit of someone else's half-work
+   is a conflict.
+10. **Push.** `git -C <vault_root> -c rebase.autoStash=true pull --rebase` then
+    `git -C <vault_root> push`. Two machines stay
     in sync only this way. If the push fails, say so and do not schedule the pane close.
 11. **Visible title.** `bash '<skill-dir>/scripts/ensure-pane-title'`. It resolves the herdr
     config with herdr's own precedence (`HERDR_CONFIG_PATH`, then `XDG_CONFIG_HOME`, on
